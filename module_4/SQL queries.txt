@@ -1,0 +1,247 @@
+Задание 4.1
+
+SELECT city,
+       count(airport_name) AS COUNT
+FROM dst_project.airports
+GROUP BY city
+HAVING count(airport_name) > 1;
+
+
+Задание 4.2
+
+WITH a AS
+  (SELECT DISTINCT status
+   FROM dst_project.flights)
+SELECT count(status)
+FROM a;
+
+SELECT count(status)
+FROM dst_project.flights
+WHERE status = 'Departed';
+
+SELECT count(seat_no)
+FROM dst_project.aircrafts t1
+LEFT JOIN dst_project.seats t2 ON (t1.aircraft_code = t2.aircraft_code)
+WHERE t1.model = 'Boeing 777-300';
+
+SELECT count(flight_id)
+FROM dst_project.flights
+WHERE actual_arrival BETWEEN '2017-04-01 00:00:00' AND '2017-09-01 00:00:00'
+  AND status = 'Arrived' ;
+
+
+Задание 4.3
+
+SELECT count(flight_id)
+FROM dst_project.flights
+WHERE status = 'Cancelled' ;
+
+
+SELECT count(*)
+FROM dst_project.aircrafts
+WHERE model like '%Boeing%' ;
+
+
+SELECT count(*)
+FROM dst_project.aircrafts
+WHERE model like '%Sukhoi Superjet%' ;
+
+
+SELECT count(*)
+FROM dst_project.aircrafts
+WHERE model like '%Airbus%' ;
+
+
+SELECT 'Asia',
+       sum(COUNT)
+FROM
+  (SELECT timezone,
+          count(*) AS COUNT
+   FROM dst_project.airports
+   WHERE timezone like '%Asia%'
+   GROUP BY timezone) AS Asia
+UNION
+SELECT 'Europe',
+       sum(COUNT)
+FROM
+  (SELECT timezone,
+          count(*) AS COUNT
+   FROM dst_project.airports
+   WHERE timezone like '%Europe%'
+   GROUP BY timezone) AS Europe
+UNION
+SELECT 'Australia',
+       sum(COUNT)
+FROM
+  (SELECT timezone,
+          count(*) AS COUNT
+   FROM dst_project.airports
+   WHERE timezone like '%Australia%'
+   GROUP BY timezone) AS Australia;
+
+
+SELECT flight_id,
+       actual_arrival-scheduled_arrival
+FROM dst_project.flights
+WHERE actual_arrival IS NOT NULL
+ORDER BY 2 DESC
+LIMIT 1;
+
+
+Задание 4.4
+
+SELECT scheduled_departure
+FROM dst_project.flights
+WHERE actual_arrival IS NOT NULL
+ORDER BY 1 ASC ;
+
+
+SELECT flight_id,
+       extract(epoch
+               FROM (scheduled_arrival - scheduled_departure)) / 60
+FROM dst_project.flights
+ORDER BY 2 DESC
+LIMIT 1;
+
+
+SELECT flight_id,
+       extract(epoch
+               FROM (scheduled_arrival - scheduled_departure)) / 60,
+       departure_airport,
+       arrival_airport
+FROM dst_project.flights
+ORDER BY 2 DESC
+LIMIT 1;
+
+
+SELECT avg(extract(epoch
+                   FROM (scheduled_arrival - scheduled_departure)) / 60)
+FROM dst_project.flights ;
+
+
+Задание 4.5
+
+SELECT fare_conditions,
+       count(*)
+FROM dst_project.seats
+WHERE aircraft_code = 'SU9'
+GROUP BY fare_conditions ;
+
+
+SELECT min(total_amount)
+FROM dst_project.bookings ;
+
+
+SELECT *
+FROM dst_project.tickets t1
+LEFT JOIN dst_project.boarding_passes t2 ON (t1.ticket_no = t2.ticket_no)
+WHERE passenger_id = '4313 788533' ;
+
+
+Задание 5.1
+
+SELECT count(*)
+FROM dst_project.flights
+WHERE arrival_airport = 'AAQ'
+  AND actual_arrival BETWEEN '2017-01-01' AND '2017-12-31' ;
+
+
+SELECT count(*)
+FROM dst_project.flights
+WHERE departure_airport = 'AAQ'
+  AND (date_part('year', actual_departure) = 2017)
+  AND (date_part('month', actual_departure) in (12,
+                                                1,
+                                                2)) ;
+
+
+SELECT count(*)
+FROM dst_project.flights
+WHERE departure_airport = 'AAQ'
+  AND status = 'Cancelled' ;
+
+
+SELECT count(*)
+FROM dst_project.flights
+WHERE departure_airport = 'AAQ'
+  AND arrival_airport not in
+    (SELECT airport_code
+     FROM dst_project.airports
+     WHERE city = 'Moscow') ;
+
+
+SELECT DISTINCT t1.aircraft_code,
+                t3.model,
+                count(t2.seat_no)
+FROM dst_project.flights t1
+LEFT JOIN dst_project.seats t2 ON (t1.aircraft_code = t2.aircraft_code)
+LEFT JOIN dst_project.aircrafts t3 ON (t1.aircraft_code = t3.aircraft_code)
+WHERE departure_airport = 'AAQ'
+GROUP BY 1,
+         2
+ORDER BY 3 DESC
+LIMIT 1;
+
+
+
+Выгрузка датасета для анализа:
+
+with t2 as ( /*Расход топлива кг/ч*/
+SELECT '733'::text aircraft_code,
+       2.4 /*Тонн в час*/ consumption
+UNION
+SELECT 'SU9',
+       1.7),
+
+t3 as ( *Данные о стоимости топлива в Анапе на 2017 год (https://favt.gov.ru/)*/
+SELECT 41435 /*Руб за тонну*/ fuel_cost,
+                              1 /*В каком месяце была такая стоимость*/ cost_month
+UNION
+SELECT 39553,
+       2
+UNION
+SELECT 47101,
+       12),
+
+t4 as ( /*Доходность рейса от продажи билетов*/
+SELECT flight_id,
+       sum(amount) flight_income
+FROM dst_project.ticket_flights
+GROUP BY flight_id),
+
+t5 as ( /*Количество доступных мест на борту самолёта*/
+SELECT aircraft_code,
+       count(seat_no) all_seats
+FROM dst_project.seats
+WHERE aircraft_code in ('733',
+                        'SU9')
+GROUP BY 1),
+
+t6 as ( /*Количество зарегистрированных на рейс пассажиров*/
+SELECT flight_id,
+       count(seat_no) reg_seats
+FROM dst_project.boarding_passes
+GROUP BY 1)
+
+SELECT t1.*,
+       t2.consumption,
+       t3.fuel_cost,
+       t4.flight_income,
+       t5.all_seats,
+       t6.reg_seats,
+       extract(epoch FROM (actual_departure - scheduled_departure))/ 3600 departure_delay(hours),
+       extract(epoch FROM (actual_arrival - actual_departure)) / 3600 flight_time,
+       ((extract(epoch FROM (actual_arrival - actual_departure)) / 3600) * consumption) * fuel_cost flight_cost,
+       (reg_seats*100)/all_seats occupancy
+FROM dst_project.flights t1
+LEFT JOIN t2 ON (t1.aircraft_code = t2.aircraft_code)
+LEFT JOIN t3 ON (date_part('month', t1.actual_departure) = t3.cost_month)
+LEFT JOIN t4 ON (t1.flight_id = t4.flight_id)
+LEFT JOIN t5 ON (t2.aircraft_code = t5.aircraft_code)
+LEFT JOIN t6 ON (t1.flight_id = t6.flight_id)
+WHERE departure_airport = 'AAQ'
+  AND (date_trunc('month', scheduled_departure) in ('2017-01-01',
+                                                    '2017-02-01',
+                                                    '2017-12-01'))
+  AND status not in ('Cancelled')
+ORDER BY 1
